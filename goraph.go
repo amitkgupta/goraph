@@ -2,16 +2,11 @@ package goraph
 
 import "errors"
 import "fmt"
+import "math"
 
 type Node struct {
 	id    int
 	Label string
-}
-
-var nilNode = Node{id: -1}
-
-func (n Node) isNil() bool {
-	return n.id == -1
 }
 
 type Edge struct {
@@ -22,7 +17,7 @@ type Edge struct {
 type BipartiteGraph struct {
 	Left  []Node
 	Right []Node
-	Edges []Edge
+	Edges []Edge // all edges go from Left to Right nodes
 }
 
 func NewBipartiteGraph(leftValues, rightValues []interface{}, neighbours func(interface{}, interface{}) (bool, error)) (*BipartiteGraph, error) {
@@ -57,9 +52,82 @@ func NewBipartiteGraph(leftValues, rightValues []interface{}, neighbours func(in
 	return &BipartiteGraph{left, right, edges}, nil
 }
 
-func (bg *BipartiteGraph) Neighbours(n1, n2 Node) bool {
-	for _, edge := range bg.Edges {
-		if (edge.node1 == n1 && edge.node2 == n2) || (edge.node1 == n2 && edge.node2 == n1) {
+func free(node Node, matching []Edge) bool {
+	for _, edge := range matching {
+		if edge.node1 == node || edge.node2 == node {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (bg *BipartiteGraph) partition(matching []Edge) [][]Node {
+	layers := [][]Node{}
+	used := make(map[Node]bool)
+	done := false
+
+	currentLayer := []Node{}
+	for _, node := range bg.Left {
+		if free(node, matching) {
+			used[node] = true
+			currentLayer = append(currentLayer, node)
+		}
+	}
+	layers = append(layers, currentLayer)
+
+	for !done {
+		lastLayer := currentLayer
+		currentLayer = []Node{}
+
+		if math.Mod(float64(len(layers)), 2.0) == 1.0 {
+			for _, leftNode := range lastLayer {
+				for _, rightNode := range bg.Right {
+					if used[rightNode] {
+						continue
+					}
+
+					edge, found := bg.findEdge(leftNode, rightNode)
+					if !found || edgeInMatching(edge, matching) {
+						continue
+					}
+
+					currentLayer = append(currentLayer, rightNode)
+					used[rightNode] = true
+
+					if free(rightNode, matching) {
+						done = true
+					}
+				}
+			}
+		} else {
+			for _, rightNode := range lastLayer {
+				for _, leftNode := range bg.Left {
+					if used[leftNode] {
+						continue
+					}
+
+					edge, found := bg.findEdge(leftNode, rightNode)
+					if !found || !edgeInMatching(edge, matching) {
+						continue
+					}
+
+					currentLayer = append(currentLayer, leftNode)
+					used[leftNode] = true
+				}
+			}
+
+		}
+
+		layers = append(layers, currentLayer)
+	}
+
+	return layers
+}
+
+func edgeInMatching(edge Edge, matching []Edge) bool {
+	for _, e := range matching {
+		if edge == e {
 			return true
 		}
 	}
@@ -67,80 +135,108 @@ func (bg *BipartiteGraph) Neighbours(n1, n2 Node) bool {
 	return false
 }
 
-func (bg *BipartiteGraph) bfs(leftRight, rightLeft map[Node]Node, dist map[Node]int) bool {
-	queue := []Node{}
-
-	for _, v := range bg.Left {
-		if leftRight[v].isNil() {
-			dist[v] = 0
-			queue = append(queue, v)
-		} else {
-			dist[v] = -1
-		}
-	}
-	dist[nilNode] = -1
-
-	for len(queue) > 0 {
-		v := queue[0]
-		queue = queue[1:]
-
-		if dist[v] != -1 && (dist[v] < dist[nilNode] || dist[nilNode] == -1) {
-			for _, u := range bg.Right {
-				w := rightLeft[u]
-
-				if bg.Neighbours(v, u) && dist[w] == -1 {
-					dist[w] = dist[v] + 1
-					queue = append(queue, w)
-				}
-			}
+func (bg *BipartiteGraph) findEdge(node1, node2 Node) (Edge, bool) {
+	for _, edge := range bg.Edges {
+		if (edge.node1 == node1 && edge.node2 == node2) || (edge.node1 == node2 && edge.node2 == node1) {
+			return edge, true
 		}
 	}
 
-	return dist[nilNode] != -1
+	return Edge{}, false
 }
 
-func (bg *BipartiteGraph) dfs(v Node, leftRight, rightLeft map[Node]Node, dist map[Node]int) bool {
-	if !v.isNil() {
-		for _, u := range bg.Right {
-			w := rightLeft[u]
+func (bg *BipartiteGraph) findDisjointSLAPHelper(currentNode Node, currentSLAP []Edge, currentLevel int, matching []Edge, layers [][]Node, used map[Node]bool) ([]Edge, bool) {
+	used[currentNode] = true
 
-			if bg.Neighbours(v, u) && dist[w] == dist[v]+1 && bg.dfs(w, leftRight, rightLeft, dist) {
-				rightLeft[u] = v
-				leftRight[v] = u
-				return true
-			}
-		}
-
-		dist[v] = -1
-		return false
+	if currentLevel == 0 {
+		return currentSLAP, true
 	}
 
-	return true
+	for _, nextNode := range layers[currentLevel-1] {
+		if used[nextNode] {
+			continue
+		}
+
+		edge, found := bg.findEdge(currentNode, nextNode)
+		if !found {
+			continue
+		}
+
+		if edgeInMatching(edge, matching) == (math.Mod(float64(currentLevel), 2.0) == 1.0) {
+			continue
+		}
+
+		currentSLAP = append(currentSLAP, edge)
+		slap, found := bg.findDisjointSLAPHelper(nextNode, currentSLAP, currentLevel-1, matching, layers, used)
+		if found {
+			return slap, true
+		}
+		currentSLAP = currentSLAP[:len(currentSLAP)-1]
+	}
+
+	used[currentNode] = false
+	return nil, false
 }
 
-func (bg *BipartiteGraph) LargestMatchingSize() int {
-	leftRight := make(map[Node]Node)
-	rightLeft := make(map[Node]Node)
-	dist := make(map[Node]int)
+func (bg *BipartiteGraph) findDisjointSLAP(start Node, matching []Edge, layers [][]Node, used map[Node]bool) ([]Edge, bool) {
+	return bg.findDisjointSLAPHelper(start, []Edge{}, len(layers)-1, matching, layers, used)
+}
 
-	for _, v := range bg.Left {
-		leftRight[v] = nilNode
-	}
-	for _, u := range bg.Right {
-		rightLeft[u] = nilNode
-	}
-	leftRight[nilNode] = nilNode
-	rightLeft[nilNode] = nilNode
+func (bg *BipartiteGraph) maximalDisjointSLAPCollection(matching []Edge) [][]Edge {
+	layers := bg.partition(matching)
+	used := make(map[Node]bool)
+	result := [][]Edge{}
 
-	matching := 0
-
-	for bg.bfs(leftRight, rightLeft, dist) {
-		for _, v := range bg.Left {
-			if leftRight[v].isNil() && bg.dfs(v, leftRight, rightLeft, dist) {
-				matching = matching + 1
+	for _, u := range layers[len(layers)-1] {
+		slap, found := bg.findDisjointSLAP(u, matching, layers, used)
+		if found {
+			for _, edge := range slap {
+				used[edge.node1] = true
+				used[edge.node2] = true
 			}
+			result = append(result, slap)
 		}
+	}
+
+	return result
+}
+
+// assumes each input slice has no repeat elements
+func symmetricDifference(edges1, edges2 []Edge) []Edge {
+	edgesToInclude := make(map[Edge]bool)
+
+	for _, edge := range edges1 {
+		edgesToInclude[edge] = true
+	}
+
+	for _, edge := range edges2 {
+		edgesToInclude[edge] = !edgesToInclude[edge]
+	}
+
+	edges := []Edge{}
+	for edge, include := range edgesToInclude {
+		if include {
+			edges = append(edges, edge)
+		}
+	}
+
+	return edges
+}
+
+func (bg *BipartiteGraph) LargestMatching() []Edge {
+	matching := []Edge{}
+	paths := bg.maximalDisjointSLAPCollection(matching)
+
+	for len(paths) > 0 {
+		for _, path := range paths {
+			matching = symmetricDifference(matching, path)
+		}
+		paths = bg.maximalDisjointSLAPCollection(matching)
 	}
 
 	return matching
+}
+
+func (bg *BipartiteGraph) LargestMatchingSize() int {
+	return len(bg.LargestMatching())
 }
