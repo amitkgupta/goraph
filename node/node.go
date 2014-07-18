@@ -4,4 +4,4 @@ type Node struct {
 	Id int
 }
 
-type NodeCollection []Node
+type NodeOrderedSet []Node

@@ -7,9 +7,9 @@ type Edge struct {
 	Node2 Node
 }
 
-type EdgeCollection []Edge
+type EdgeSet []Edge
 
-func (ec EdgeCollection) Free(node Node) bool {
+func (ec EdgeSet) Free(node Node) bool {
 	for _, e := range ec {
 		if e.Node1 == node || e.Node2 == node {
 			return false
@@ -19,7 +19,7 @@ func (ec EdgeCollection) Free(node Node) bool {
 	return true
 }
 
-func (ec EdgeCollection) Contains(edge Edge) bool {
+func (ec EdgeSet) Contains(edge Edge) bool {
 	for _, e := range ec {
 		if e == edge {
 			return true
@@ -29,7 +29,7 @@ func (ec EdgeCollection) Contains(edge Edge) bool {
 	return false
 }
 
-func (ec EdgeCollection) FindByNodes(node1, node2 Node) (Edge, bool) {
+func (ec EdgeSet) FindByNodes(node1, node2 Node) (Edge, bool) {
 	for _, e := range ec {
 		if (e.Node1 == node1 && e.Node2 == node2) || (e.Node1 == node2 && e.Node2 == node1) {
 			return e, true
@@ -39,7 +39,7 @@ func (ec EdgeCollection) FindByNodes(node1, node2 Node) (Edge, bool) {
 	return Edge{}, false
 }
 
-func (ec EdgeCollection) SymmetricDifference(ec2 EdgeCollection) EdgeCollection {
+func (ec EdgeSet) SymmetricDifference(ec2 EdgeSet) EdgeSet {
 	edgesToInclude := make(map[Edge]bool)
 
 	for _, e := range ec {
@@ -50,7 +50,7 @@ func (ec EdgeCollection) SymmetricDifference(ec2 EdgeCollection) EdgeCollection 
 		edgesToInclude[e] = !edgesToInclude[e]
 	}
 
-	result := EdgeCollection{}
+	result := EdgeSet{}
 	for e, include := range edgesToInclude {
 		if include {
 			result = append(result, e)
